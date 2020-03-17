@@ -1,0 +1,4 @@
+**/__pycache__
+**/.mypy_cache
+**/*.jpg
+!**/00000001.jpg
