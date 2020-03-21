@@ -3,5 +3,7 @@ from typing import *
 import numpy as np #type: ignore
 
 from .core import ImageFeatures
-from .Patches import grey_patches, colour_patches
+from .Patches import MakeGrayPatchExtractor, MakeColourPatchExtractor
+from .SIFT import MakeGraySIFTExtractor, MakeColourSIFTExtractor, MakeSparseGraySIFTExtractor
+
 

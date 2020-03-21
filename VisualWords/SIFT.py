@@ -1,28 +1,39 @@
 from __future__ import annotations
 import core #type: ignore
-from core import ImageFeatures
+from core import ImageFeatures, FeatureExtractor
 import numpy as np #type: ignore
 import cv2 #type: ignore
 import math
 from itertools import count
 
 
-
-def gray_SIFT(img: np.ndarray, step:int=5, spacing:int=5)->ImageFeatures:
-    kp = []
-    for y in range(0, img.shape[1], spacing):
-        for x in range(0, img.shape[0], spacing):
-          kp.append(cv2.KeyPoint(x,y, _octave=0,_size=4 ))  
-    sift = cv2.xfeatures2d.SIFT_create()
-    kp, des = sift.compute(img, kp)
-    print(kp)
-    print(des)
+def MakeGraySIFTExtractor(step:int=5, size:int=5)->FeatureExtractor:
+    def GraySIFTExtractor(img:np.ndarray)->ImageFeatures:
+        return gray_SIFT(img, size=size, step=step)
+    return GraySIFTExtractor
+    
 
 
-def __grey_SIFT(img: np.ndarray, step:int=5, spacing:int=5)->ImageFeatures:
-    pass
+def MakeColourSIFTExtractor(step:int=5, size:int=5)->FeatureExtractor:
+    def ColourSIFTExtractor(img:np.ndarray)->ImageFeatures:
+        return colour_SIFT(img, size=size, step=step)
+    return ColourSIFTExtractor
 
-if __name__ == "__main__":
-    tImg = cv2.imread("thin_gray_scale.jpg",  cv2.COLOR_BGR2GRAY)
+def MakeSparseGraySIFTExtractor(step:int, size:int=5)->FeatureExtractor:
+    def SparseGraySIFTExtractor(img:np.ndarray)->ImageFeatures:
+        return sparse_gray_SIFT(img)
+    return SparseGraySIFTExtractor
 
-    gray_SIFT(tImg, step=5, spacing=5)
+
+
+
+def gray_SIFT(img: np.ndarray, step:int=5, size:int=5)->ImageFeatures:
+    return ImageFeatures(1,1,np.array([0]))
+
+
+def colour_SIFT(img: np.ndarray, step:int=5, size:int=5)->ImageFeatures:
+    return ImageFeatures(1,1,np.array([0]))
+
+# see references , [7, 14, 15].    
+def sparse_gray_SIFT(img: np.ndarray, step:int=5, size:int=5)->ImageFeatures:
+    return ImageFeatures(1,1,np.array([0]))

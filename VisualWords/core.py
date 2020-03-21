@@ -1,25 +1,10 @@
 from __future__ import annotations
 from typing import *
 import numpy as np #type: ignore
-#from recordclass import RecordClass #type: ignore
-#from recordclass.typing import RecordClass #type: ignore
 from enum import IntEnum, auto
 
 
-class RGBOrder(IntEnum):
-    OpenCV = auto()
-    RGB = auto()
-
-def toGrayscale(img:np.ndarray, img_format:RGBOrder= RGBOrder.OpenCV)->np.ndarray:
-    out:np.ndarray = np.zeros_like(img)
-    if img_format == RGBOrder.OpenCV:
-        out = img[:,:,0]*0.1140 + img[:,:,1]*0.2989 + img[:,:,0]*0.5870
-    elif img_format == RGBOrder.RGB:
-        out = img[:,:,0]*0.2989 + img[:,:,1]*0.1440 + img[:,:,0]*0.5870
-    return out
-
-
-
+FeatureExtractor = Callable[[np.ndarray], ImageFeatures]
 
 #Features are always arranged row major
 #This way accessing a single feature is faster
@@ -29,7 +14,6 @@ class ImageFeatures: #type: ignore
         self.FeatureDim: int = FeatureDim
         self.NumFeatureVecs: int = NumFeatureVecs
         self.Features: np.ndarray = Features 
-        #data_slices: List[slice]
         self.IterIndex:int=0
 
     #Resets the iteration index of the feature vector
@@ -48,51 +32,27 @@ class ImageFeatures: #type: ignore
         self.IterIndex+=1
         return res
 
+
     #Returns how many feature vectors are contained 
     def __len__(self)->int:
         return self.NumFeatureVecs
     
+
     #Allows indexing into the features, always returns a ImageFeatures type
     def __getitem__(self, key: Union[int, slice])->np.ndarray:
-        if isinstance(key, slice):
-            res = self.Features[key,:]
-            numVecs = res.shape[0]
-            featureDim = self.FeatureDim
-            return_val: ImageFeatures =  ImageFeatures(featureDim, numVecs, res)
-            return return_val
-        elif isinstance(key, int):
-            return_val =  ImageFeatures(self.FeatureDim, 1, self.Features[key,:])
-            return return_val
-        else:
+        if not(isinstance(key, slice) or isinstance(key, int)):
             raise KeyError("ImageFeatures only accepts integers and slices as subscripts")
+        features = self.Features[key,:]
+        return ImageFeatures(self.FeatureDim, features.shape[0], features)
+
+            
 
     def __setitem__(self, key, item):
-        if isinstance(key, slice):
-            self.Features[key, :] = item
-        elif isinstance(key, int):
-            self.Features[key, :] = item
-        else:
+        if not(isinstance(key, slice) or isinstance(key, int)):
             raise KeyError("ImageFeatures only accepts integers and slices as subscripts when setting values")
-       
+        self.Features[key, :] = item
+
 
     def __str__(self)->str:
         return f"ImageClass(FeatureDim={self.FeatureDim}, NumFeatureVecs={self.NumFeatureVecs}, IterIndex={self.IterIndex}, Features={self.Features})"
 
-tcount = 0
-def t(item: ImageFeatures)->None:
-    global tcount
-    print(f"examining {tcount}th test")
-    for feature in item:
-        print(f"\t{feature}")
-    tcount += 1
-
-if __name__ == "__main__":
-    test = np.eye(6)
-    num_features:int = test.shape[0]
-    featureDim:int = test.shape[1]
-    t_if = ImageFeatures(featureDim, num_features, test)
-
-    t(t_if[0])
-    t(t_if[0:4:2])
-    test_subslicing = t_if[0::1]
-    t(t_if[-1])
