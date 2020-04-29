@@ -1,6 +1,6 @@
 from __future__ import annotations
-import core #type: ignore
-from core import ImageFeatures, FeatureExtractor
+import VisualWords.core #type: ignore
+from VisualWords.core import ImageFeatures, FeatureExtractor
 import numpy as np #type: ignore
 import cv2 #type: ignore
 import math

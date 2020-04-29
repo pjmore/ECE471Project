@@ -4,7 +4,7 @@ import numpy as np #type: ignore
 from enum import IntEnum, auto
 
 
-FeatureExtractor = Callable[[np.ndarray], ImageFeatures]
+FeatureExtractor = Callable[[np.ndarray], 'ImageFeatures']
 
 #Features are always arranged row major
 #This way accessing a single feature is faster

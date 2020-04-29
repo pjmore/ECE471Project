@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Tuple
-import core #type: ignore
-from core import ImageFeatures, FeatureExtractor
+import VisualWords.core #type: ignore
+from VisualWords.core import ImageFeatures, FeatureExtractor
 import numpy as np #type: ignore
 import cv2 #type: ignore
 import math
@@ -47,7 +47,6 @@ def __patch_extract(img: np.ndarray, size=5, step=5, feature_size_multiple=1)->T
     #width and height
     w:int
     h:int
-    
     w,h = img.shape[0:2]
     num_row_iter:int = math.ceil((w-2*N)/step)
     num_col_iter:int = math.ceil((h-2*N)/step)
