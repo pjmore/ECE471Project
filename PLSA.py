@@ -9,7 +9,9 @@ import itertools
 import math
 import os
 import sys
+import cmath
 import numba #type: ignore  
+from numba import prange #type: ignore
 
 class ClusteringMethod(Enum):
     kmeans = 0
@@ -36,23 +38,7 @@ class SummaryPerformanceMetrics(NamedTuple):
 
 
 
-BaseDatasetPath = "./dataset/data"
-BaseImagListPath = "./dataset/filelist/test_file_list.txt"
 
-TrainSize = 80
-TestSize = 10
-
-SampleMethod = SamplingMethod.Deterministic
-
-
-ImageColour = Colour.GRAY
-ImageTransform: Any = None
-
-
-Cluster_Method = ClusteringMethod.kmeans
-
-Eps = 1e-6
-MaxIter = 1000
 
 class FeatureExtractors(Enum):
     
@@ -62,12 +48,12 @@ class FeatureExtractors(Enum):
     Colour_SIFT = 3
     Gray_SIFT_Sparse = 4
 
-@numba.jit
+@numba.jit(nopython=True)
 def Expectation(P_TopicGivenWordDocument, P_TopicGivenDocument, P_WordGivenTopic):
     NTopics = P_TopicGivenDocument.shape[0]
     NWords = P_WordGivenTopic.shape[0]
     NDocs = P_TopicGivenDocument.shape[1]
-    for i in range(NDocs):
+    for i in prange(NDocs):
         for j in range(NWords):
             divisor = 0
             for k in range(NTopics):
@@ -80,7 +66,7 @@ def Expectation(P_TopicGivenWordDocument, P_TopicGivenDocument, P_WordGivenTopic
                     P_TopicGivenWordDocument[k,i,j] =  P_WordGivenTopic[j,k]*P_TopicGivenDocument[k,i]/divisor
     return P_TopicGivenWordDocument
 
-@numba.jit
+@numba.jit(nopython=True)
 def Maximize_TopicGivenDocument(Old_P_TopicGivenDocument, Co_OccurenceTable, P_TopicGivenDocumentWord):
     NTopics = P_TopicGivenDocumentWord.shape[0]
     NWords = P_TopicGivenDocumentWord.shape[2]
@@ -91,7 +77,7 @@ def Maximize_TopicGivenDocument(Old_P_TopicGivenDocument, Co_OccurenceTable, P_T
     #print(f"NTopcis:{NTopics}")
     #print(f"NWords:{NWords}")
     #print(f"NDocs:{NDocs}")
-    for i in range(NDocs):
+    for i in prange(NDocs):
         for k in range(NTopics):
             Old_P_TopicGivenDocument[k,i] = 0
             for j in range(NWords):
@@ -100,38 +86,42 @@ def Maximize_TopicGivenDocument(Old_P_TopicGivenDocument, Co_OccurenceTable, P_T
             Old_P_TopicGivenDocument[k,i]/N[i]
     return Old_P_TopicGivenDocument
 
-@numba.jit
-def Maximize_WordGivenTopic(Old_P_WordGivenDocument, Co_OccurenceTable, P_TopicGivenDocumentWord):
+@numba.jit(nopython=True)
+def Maximize_WordGivenTopic(Old_P_WordGivenDocument, Co_OccurenceTable, P_TopicGivenDocumentWord, NormalizationFactors):
     NTopics = P_TopicGivenDocumentWord.shape[0]
     NWords = P_TopicGivenDocumentWord.shape[2]
     NDocs = P_TopicGivenDocumentWord.shape[1]
-    NormalizationFactors = np.zeros((NTopics,), dtype="float64")
-    for m in range(NWords):
+    for k in range(NTopics):
+        NormalizationFactors[k] = 0
+    for m in prange(NWords):
         for i in range(NDocs):
             for k in range(NTopics):
                 NormalizationFactors[k] += Co_OccurenceTable[m,i]*P_TopicGivenDocumentWord[k,i,m]
     
-    for j in range(NWords):
+    for j in prange(NWords):
         for k in range(NTopics):
             partial_sum = 0
+            if NormalizationFactors[k] == 0:
+                Old_P_WordGivenDocument[j,k] = 0
+                continue
             for i in range(NDocs):
                 partial_sum += Co_OccurenceTable[j,i]*P_TopicGivenDocumentWord[k,i,j]
             Old_P_WordGivenDocument[j,k] = partial_sum/NormalizationFactors[k]
     return Old_P_WordGivenDocument
 
 
-@numba.jit
+@numba.jit(nopython=True)
 def logLiklihood_jit(P_TopicGivenDocument, Co_OccurenceTable, P_TopicGivenDocumentWord, P_WordGivenTopic) -> float:
     ll = 0.0
     NTopics = P_TopicGivenDocumentWord.shape[0]
     NWords = P_TopicGivenDocumentWord.shape[2]
     NDocs = P_TopicGivenDocumentWord.shape[1]
-    for N in range(NDocs):
+    for N in prange(NDocs):
         for M in range(NWords):
             partial_sum = 0.0
             for K in range(NTopics):
                 Nan_test = P_TopicGivenDocumentWord[K, N, M]*np.log(P_WordGivenTopic[M, K] * P_TopicGivenDocument[K,N])
-                if not math.isnan(Nan_test):
+                if not cmath.isnan(Nan_test):
                     partial_sum += Nan_test 
 
             ll += partial_sum * Co_OccurenceTable[N,M]
@@ -140,27 +130,44 @@ def logLiklihood_jit(P_TopicGivenDocument, Co_OccurenceTable, P_TopicGivenDocume
 
 
 class PLSA:
-    def __init__(self, NumVisualWords: int, NumTopics: int, NumNeighbors:int ):
-        self.TrainingDataset: TrainDataset
-        self.TestingDataset: TestDataset
-        self.TrainingDataset, self.TestingDataset = LoadDatasets(BaseImagListPath, BaseDatasetPath, TrainSize, TestSize, 4, SampleMethod, ImageColour, ImageTransform)
-        self.Extractor = MakeGrayPatchExtractor() 
-        self.Co_OccurenceTable = np.zeros((1,1))
+    def __init__(self, 
+                    BaseImageListPath:str = "./dataset/filelist/places365_train_standard.txt", 
+                    BaseDatasetPath:str="./dataset/data",  
+                    NumVisualWords: int=1500, 
+                    NumTopics: int=25, 
+                    NumNeighbors:int = 10,
+                    NumCategories:int = 365, 
+                    TrainSize:int = 1000,
+                    TestSize: int = 1000,
+                    SamplingMethod = SamplingMethod.Deterministic,
+                    ImageColour = Colour.GRAY,
+                    ImageTransform: Any = None,
+                    Eps = 0.000001,
+                    MaxIter = 1000
+                ):
+        self.SamplingMethod = SamplingMethod
+        self.NumCategories = NumCategories
         self.NumVisualWords = NumVisualWords
         self.NumTopics = NumTopics
         self.NumNeighbors = NumNeighbors
-        self.NumCategories = 4
+
+        self.Eps = Eps
+        self.MaxIter = MaxIter
+
+        self.TrainingDataset: TrainDataset
+        self.TestingDataset: TestDataset
+        self.TrainingDataset, self.TestingDataset = LoadDatasets(BaseImageListPath, BaseDatasetPath, TrainSize, TestSize, NumCategories, SamplingMethod, ImageColour, ImageTransform)
+        self.Extractor = MakeGrayPatchExtractor() 
+
+
+
+
 
         self.KNNClassifier = neighbors.KNeighborsClassifier(n_neighbors=NumNeighbors)
 
         self.ImageLabels = np.zeros((1,1))
         self.WordCenters = np.zeros((1,1))
 
-        # Axis 0 - Number of topics
-        # Axis 1 - Length of training set or number of documents
-        self.P_TopicGivenDocument = np.random.random((self.NumTopics, len(self.TrainingDataset)))
-        #Normalize the conditional distribution 
-        self.P_TopicGivenDocument = self.P_TopicGivenDocument/np.sum(self.P_TopicGivenDocument, axis=0)
         
         
         # Axis 0 - Number of unique words
@@ -169,11 +176,7 @@ class PLSA:
         #A uniform distribution is assumed at first so no additional normalization is required
 
 
-        # Axis 0 - number of topics
-        # Axis 1 - number of documents
-        # Axis 2 - number of words
-        self.P_TopicGivenDocumentWord = np.random.random((NumTopics, len(self.TrainingDataset), NumVisualWords))
-        self.P_TopicGivenDocumentWord = self.P_TopicGivenDocumentWord/ np.sum(self.P_TopicGivenDocumentWord, axis = 0)
+
 
     def train(self):
         print("Beginning training")
@@ -183,6 +186,7 @@ class PLSA:
         numFeatures = -1
         feature_idx = 0
         image_idx = 0
+        print("Extracting all image features")
         for img in self.TrainingDataset:
             vWords = self.Extractor(img[0])
             self.ImageLabels[image_idx] = img[1]
@@ -212,54 +216,65 @@ class PLSA:
         img_index = 0
         img_word_index = 0
 
-        self.Co_OccurenceTable = np.zeros((self.NumVisualWords, len(self.TrainingDataset)), dtype="uint32")
+        Co_OccurenceTable = np.zeros((self.NumVisualWords, len(self.TrainingDataset)), dtype="uint32")
         for label in labels:
-            self.Co_OccurenceTable[label, img_index] += 1
+            Co_OccurenceTable[label, img_index] += 1
             img_word_index += 1
             if img_word_index == NumberOfImageFeatures[img_index]:
                 img_word_index = 0
                 img_index += 1
         
 
-        
+
+
+
+        # Axis 0 - Number of topics
+        # Axis 1 - Length of training set or number of documents
+        P_TopicGivenDocument = np.random.random((self.NumTopics, len(self.TrainingDataset)))
+        #Normalize the conditional distribution 
+        P_TopicGivenDocument = P_TopicGivenDocument/np.sum(P_TopicGivenDocument, axis=0)
+
+
+        # Axis 0 - number of topics
+        # Axis 1 - number of documents
+        # Axis 2 - number of words
+        P_TopicGivenDocumentWord = np.random.random((self.NumTopics, len(self.TrainingDataset), self.NumVisualWords))
+        P_TopicGivenDocumentWord = P_TopicGivenDocumentWord/ np.sum(P_TopicGivenDocumentWord, axis = 0)
 
         #Beginning EM maximization
 
+        NormalizationFactors = np.zeros((self.NumTopics,), dtype="float64")
 
         Old_logLiklihood = -sys.float_info.max
         New_logLiklihood = 0.0
-        for iteration in range(MaxIter): 
-            New_logLiklihood = self.logLiklihood()
-            if New_logLiklihood - Old_logLiklihood < Eps:
+        for iteration in range(self.MaxIter): 
+            New_logLiklihood = logLiklihood_jit(P_TopicGivenDocument, Co_OccurenceTable, P_TopicGivenDocumentWord, self.P_WordGivenTopic)
+            if New_logLiklihood - Old_logLiklihood < self.Eps:
                 break
             print(f"\t[{iteration}]: delta= {New_logLiklihood - Old_logLiklihood}")
             Old_logLiklihood = New_logLiklihood
             #Expectation portion
-            self.P_TopicGivenDocumentWord = Expectation(self.P_TopicGivenDocumentWord, self.P_TopicGivenDocument, self.P_WordGivenTopic)
+            P_TopicGivenDocumentWord = Expectation(P_TopicGivenDocumentWord, P_TopicGivenDocument, self.P_WordGivenTopic)
             #Maximization portion
-            self.P_TopicGivenDocument = Maximize_TopicGivenDocument(self.P_TopicGivenDocument, self.Co_OccurenceTable, self.P_TopicGivenDocumentWord)
-            self.P_WordGivenTopic = Maximize_WordGivenTopic(self.P_WordGivenTopic, self.Co_OccurenceTable, self.P_TopicGivenDocumentWord)
+            P_TopicGivenDocument = Maximize_TopicGivenDocument(P_TopicGivenDocument, Co_OccurenceTable, P_TopicGivenDocumentWord)
+            self.P_WordGivenTopic = Maximize_WordGivenTopic(self.P_WordGivenTopic, Co_OccurenceTable, P_TopicGivenDocumentWord, NormalizationFactors)
         print("Done EM training KNN classifier")
-        print(self.P_TopicGivenDocument.shape)
-        self.KNNClassifier.fit(self.P_TopicGivenDocument.T, self.ImageLabels)
+        self.KNNClassifier.fit(P_TopicGivenDocument.T, self.ImageLabels)
         print("Done training")
         
 
-    
-            
         
     def calculate_Z_vector(self, image):
         vWords = self.Extractor(image)
         #Z vector is equivalent to a portion of the topic specific distribution given the document
 
         #the distribution of the words given the topics is the distribution that was fitted to the training data        
-        P_TopicGivenDocumentWord = np.random.random((NumTopics, 1, NumVisualWords))
+        P_TopicGivenDocumentWord = np.random.random((self.NumTopics, 1, self.NumVisualWords))
         P_TopicGivenDocumentWord = P_TopicGivenDocumentWord/ np.sum(P_TopicGivenDocumentWord, axis = 0)
 
 
         P_TopicGivenDocument = np.random.random((self.NumTopics, 1))
         P_TopicGivenDocument  = P_TopicGivenDocument/ np.sum(P_TopicGivenDocument, axis=0)
-
 
 
         #Equivalent to the co-occurence table
@@ -269,9 +284,9 @@ class PLSA:
 
         Old_logLiklihood = -sys.float_info.max
         New_logLiklihood = 0.0
-        for iteration in range(MaxIter):
+        for iteration in range(self.MaxIter):
             New_logLiklihood = logLiklihood_jit(P_TopicGivenDocument, WordOccurrence, P_TopicGivenDocumentWord, self.P_WordGivenTopic )
-            if New_logLiklihood - Old_logLiklihood < Eps:
+            if New_logLiklihood - Old_logLiklihood < self.Eps:
                 break
             Old_logLiklihood = New_logLiklihood
             P_TopicGivenDocumentWord = Expectation(P_TopicGivenDocumentWord, P_TopicGivenDocument, self.P_WordGivenTopic)
@@ -300,12 +315,12 @@ class PLSA:
         
     def test_PLSA(self):
         print("Beginning to test the model")
-        predictedLabels = np.zeros((len(self.TestingDataset,)))
-        GTLabels = np.zeros((len(self.TestingDataset,)))
+        predictedLabels = []
+        GTLabels = []
         image_idx = 0
         for img, GT_Label in self.TestingDataset:
-            predictedLabels[image_idx] = self.classify_image(img)
-            GTLabels = GT_Label
+            predictedLabels.append(self.classify_image(img)) 
+            GTLabels.append(GT_Label) 
         labels = [x for x in range(self.NumCategories)]
         print("Done classifying and beginning evaluation")
         report =   metrics.classification_report(GTLabels, predictedLabels,labels=labels, output_dict=True, zero_division=1)
@@ -327,47 +342,24 @@ class PLSA:
         )
         print(summaryReport)
 
-         
-
-
-    def logLiklihood(self) -> float:
-        return logLiklihood_jit(self.P_TopicGivenDocument, self.Co_OccurenceTable, self.P_TopicGivenDocumentWord, self.P_WordGivenTopic)
-        
-        
+            
         
     def cluster(self, data)->List[int]:
-        if Cluster_Method == ClusteringMethod.kmeans:
-            print("Clustering using kmeans")
-            return self.kmeans_cluster(data)
-        elif Cluster_Method == ClusteringMethod.OPTICS:
-            print("Clustering using the OPTICS")
-            return self.OPTICS_cluster(data)
-        else:
-            raise ValueError("Did not recognize clustering algorithm")
-        
-    def kmeans_cluster(self, data)->List[int]:
-        c = cluster.MiniBatchKMeans(n_clusters=self.NumVisualWords, init='k-means++', init_size=self.NumVisualWords*4,max_iter=1000).fit(data)
+        c = cluster.MiniBatchKMeans(n_clusters=self.NumVisualWords, init='k-means++', init_size=self.NumVisualWords*3,max_iter=100).fit(data)
         self.WordCenters = c.cluster_centers_
         return c.labels_
         
 
-    def OPTICS_cluster(self, data)->List[int]:
-        per_dimension_eps = 5
-        eps_total = per_dimension_eps*math.sqrt(data.shape[1])
-        c = cluster.OPTICS(n_jobs=3, max_eps=eps_total).fit(data)
-        self.NumVisualWords = c.cluster_hierarchy_.shape[0]
-        return c.labels_
 
 
-if __name__ == "__main__":
-    #Using values from paper
-    NumVisualWords = 1500
-    NumTopics = 25
-    NumNeighbors = 10
-
-    model = PLSA(NumVisualWords, NumTopics, NumNeighbors)
+def runModel():
+    model = PLSA(NumTopics=500, NumVisualWords=1000, TrainSize=1000)
     model.train()
     model.test_PLSA()
+
+if __name__ == "__main__":
+    runModel()
+
 
 
 

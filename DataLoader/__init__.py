@@ -167,9 +167,7 @@ def LoadDatasets(filelist_path:str, base_path:str, training_set_size: int, testi
                     break
 
 
-    print(f"The base path is {base_path}")
     base_path = os.path.abspath(base_path)
-    print(f"The absolute base path is {base_path}")
     training_set: TrainDataset = TrainDataset(base_path, training_line_list, output_color=output_color, transform=transform)
     testing_set: TestDataset = TestDataset(base_path,testing_line_list, output_color=output_color, transform=transform)
     return training_set, testing_set
