@@ -24,3 +24,6 @@ To train, test, and print the performance metrics run the following command
 
 
 
+## Dependency Licenses
+
+All dependency licenses can be found in the licenses.txt file
