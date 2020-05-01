@@ -12,7 +12,7 @@ import sys
 import cmath
 import numba #type: ignore  
 from numba import prange #type: ignore
-
+import config
 class ClusteringMethod(Enum):
     kmeans = 0
     OPTICS = 1
@@ -353,7 +353,21 @@ class PLSA:
 
 
 def runModel():
-    model = PLSA(NumTopics=500, NumVisualWords=1000, TrainSize=1000)
+    model = PLSA(
+        BaseImageListPath = config.BaseImageListPath,
+        BaseDatasetPath= config.BaseDatasetPath ,  
+        NumVisualWords=config.NumVisualWords, 
+        NumTopics=config.NumTopics, 
+        NumNeighbors = config.NumNeighbors,
+        NumCategories = config.NumCategories, 
+        TrainSize = config.TrainSize,
+        TestSize = config.TestSize,
+        SamplingMethod = config.SampleMethod,
+        ImageColour = config.ImageColour,
+        ImageTransform = config.ImageTransform,
+        Eps = config.Eps,
+        MaxIter = config.MaxIter
+    )
     model.train()
     model.test_PLSA()
 
